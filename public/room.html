@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Join a Room</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding-top: 80px;
+      background-color: #111;
+      color: white;
+    }
+    input {
+      padding: 10px;
+      font-size: 18px;
+      width: 300px;
+      border-radius: 6px;
+      border: none;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 18px;
+      margin-left: 10px;
+      border-radius: 6px;
+      border: none;
+      background-color: #00b894;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>🎬 Join a Watch Room</h2>
+  <input type="text" id="roomId" placeholder="Enter Room ID" />
+  <button onclick="joinRoom()">Join</button>
+
+  <script>
+    function joinRoom() {
+      const room = document.getElementById('roomId').value.trim();
+      if (room) {
+        window.location.href = `/room/${room}`;
+      }
+    }
+  </script>
+</body>
+</html>
