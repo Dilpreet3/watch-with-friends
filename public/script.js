@@ -1,68 +1,108 @@
-
 const socket = io();
-const roomId = window.location.pathname.split("/").pop();
-const video = document.getElementById("videoPlayer");
-const videoInput = document.getElementById("videoInput");
-const modeSelect = document.getElementById("modeSelect");
-const webcam = document.getElementById("webcam");
-const webcamContainer = document.getElementById("webcamContainer");
+const peers = {};
+let localStream;
 
-let mode = "local";
-let isHost = true;
+const video = document.getElementById("video");
+const playBtn = document.getElementById("playBtn");
+const pauseBtn = document.getElementById("pauseBtn");
+const toggleMic = document.getElementById("toggleMic");
+const fileInput = document.getElementById("fileInput");
+const roomDisplay = document.getElementById("roomDisplay");
 
-socket.emit("join-room", roomId);
+// Room join UI logic
+const home = document.getElementById("home");
+const app = document.getElementById("app");
+const createBtn = document.getElementById("createRoom");
+const joinBtn = document.getElementById("joinRoomBtn");
+const joinInput = document.getElementById("joinInput");
 
-modeSelect.onchange = () => {
-  mode = modeSelect.value;
+createBtn.onclick = () => {
+  const room = Math.random().toString(36).substr(2, 6);
+  window.location.href = `/room/${room}`;
 };
 
-document.getElementById("toggleCam").onclick = async () => {
-  if (webcamContainer.style.display === "none") {
-    webcamContainer.style.display = "block";
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    webcam.srcObject = stream;
-  } else {
-    webcamContainer.style.display = "none";
-    let tracks = webcam.srcObject.getTracks();
-    tracks.forEach(t => t.stop());
-    webcam.srcObject = null;
-  }
+joinBtn.onclick = () => {
+  const room = joinInput.value.trim();
+  if (room) window.location.href = `/room/${room}`;
 };
 
-videoInput.onchange = async () => {
-  const file = videoInput.files[0];
-  if (!file) return;
+const match = window.location.pathname.match(/^\/room\/(\w+)$/);
+if (match) {
+  const roomId = match[1];
+  home.style.display = "none";
+  app.style.display = "block";
+  roomDisplay.textContent = roomId;
+  initRoom(roomId);
+}
 
-  if (mode === "local") {
-    video.src = URL.createObjectURL(file);
-  } else {
-    const formData = new FormData();
-    formData.append("video", file);
-    const res = await fetch("/upload", { method: "POST", body: formData });
-    const { url } = await res.json();
-    video.src = url;
-    socket.emit("sync", { room: roomId, type: "src", src: url });
-  }
+function initRoom(roomId) {
+  socket.emit("join-room", roomId);
+
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    localStream = stream;
+
+    socket.on("user-connected", userId => {
+      const peer = createPeer(userId, true);
+      peers[userId] = peer;
+    });
+
+    socket.on("signal", ({ from, signal }) => {
+      if (!peers[from]) peers[from] = createPeer(from);
+      peers[from].signal(signal);
+    });
+
+    socket.on("user-disconnected", userId => {
+      if (peers[userId]) {
+        peers[userId].destroy();
+        delete peers[userId];
+      }
+    });
+  });
+}
+
+function createPeer(userId, initiator = false) {
+  const peer = new SimplePeer({ initiator, trickle: false, stream: localStream });
+
+  peer.on("signal", signal => {
+    socket.emit("signal", { to: userId, signal });
+  });
+
+  peer.on("stream", remoteStream => {
+    const audio = document.createElement("audio");
+    audio.srcObject = remoteStream;
+    audio.autoplay = true;
+    document.body.appendChild(audio);
+  });
+
+  return peer;
+}
+
+// Video playback sync (host only)
+playBtn.onclick = () => {
+  video.play();
+  socket.emit("signal", { to: "all", signal: { type: "play" } });
 };
 
-video.onplay = () => socket.emit("sync", { room: roomId, type: "play" });
-video.onpause = () => socket.emit("sync", { room: roomId, type: "pause" });
-video.ontimeupdate = () => socket.emit("sync", { room: roomId, type: "seek", time: video.currentTime });
+pauseBtn.onclick = () => {
+  video.pause();
+  socket.emit("signal", { to: "all", signal: { type: "pause" } });
+};
 
-socket.on("sync", data => {
-  if (isHost) return;
-  switch (data.type) {
-    case "src":
-      video.src = data.src;
-      break;
-    case "play":
-      video.play();
-      break;
-    case "pause":
-      video.pause();
-      break;
-    case "seek":
-      video.currentTime = data.time;
-      break;
-  }
+socket.on("signal", ({ signal }) => {
+  if (signal.type === "play") video.play();
+  if (signal.type === "pause") video.pause();
 });
+
+fileInput.onchange = (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    video.src = URL.createObjectURL(file);
+  }
+};
+
+toggleMic.onclick = () => {
+  if (localStream) {
+    localStream.getAudioTracks()[0].enabled = !localStream.getAudioTracks()[0].enabled;
+    toggleMic.textContent = localStream.getAudioTracks()[0].enabled ? "🎙️ Mic ON" : "🔇 Mic OFF";
+  }
+};
